@@ -84,14 +84,17 @@ module CU_FSM(
     input clk, 
     input RST, 
     input [6:0] opcode,     // ir[6:0] 
+    input [2:0] func3,
     input CSR_MSTATUS_MIE,
     output logic PC_WE, 
     output logic RF_WE, 
     output logic memWE2, 
     output logic memRDEN1, 
     output logic memRDEN2, 
-    output logic reset 
-    
+    output logic reset, 
+    output logic csr_WE,
+    output logic int_taken,
+    output logic mret_exec 
 
   ); 
   
@@ -122,9 +125,11 @@ module CU_FSM(
         SYS    = 7'b1110011
     } opcode_t; 
 
-opcode_t OPCODE;    //- symbolic names for instruction opcodes 
-     
-assign OPCODE = opcode_t'(opcode); //- Cast input as enum  
+opcode_t OPCODE;    //- symbolic names for instruction opcodes     
+assign OPCODE = opcode_t'(opcode); //- Cast input as enum
+
+func3_t FUNC3; //- define variable of new opcode type  
+   assign FUNC3 = func3_t'(func3); //- Cast input enum  
     
 //- state registers (PS) 
 
@@ -151,7 +156,7 @@ memWE2 = 1'b0;     memRDEN1 = 1'b0;    memRDEN2 = 1'b0;
                 NS = st_EX;  
             end               
             st_EX: //decode + execute 
-            if (interrupt ==1)begin
+            if (interrupt == 1)begin
                 NS = st_INTR;
             end else begin
                 PC_WE = 1'b1; 
@@ -223,16 +228,47 @@ memWE2 = 1'b0;     memRDEN1 = 1'b0;    memRDEN2 = 1'b0;
                     PC_WE = 1'b1; 
                     RF_WE = 1'b1; 
                     NS = st_FET; 
-                end    
+                end
+    
+    SYS: begin
+        case(FUNC3)
+        3'b000: begin // MRET
+                PC_WE = 1'b1;
+                mret_exec = 1'b1;
+                int_taken = 1'b1;
+                NS = st_FET;
+        end
+
+        3'b001: begin // CSRRW
+            RF_WE = 1'b1;
+            PC_WE = 1'b1;
+            csr_WE = 1'b1;
+                       
+            NS = st_FET;            
+        end
+
+        3'b010: begin // CSRRS
+            RF_WE = 1'b1;
+            PC_WE = 1'b1;
+            csr_WE = 1'b1;           
+            NS = st_FET;            
+        end
+
+        3'b011: begin // CSRRC
+            RF_WE = 1'b1;           
+            PC_WE = 1'b1;
+            csr_WE =1'b1;           
+            NS = st_FET;            
+        end
+     endcase
+     end
+                       
 //default:   
 //   begin  
 //      NS = st_FET; 
 //   end 
-                endcase 
-            end 
-
             st_WB: 
-            if (interrupt ==1)begin
+            if (interrupt == 1)begin
                 NS = st_INTR;
             end else begin 
                RF_WE = 1'b1; 
@@ -242,20 +278,11 @@ memWE2 = 1'b0;     memRDEN1 = 1'b0;    memRDEN2 = 1'b0;
             
             st_INTR:
             begin
-                 PC_WE = 1'b0;        // Prevent PC from updating
-                 RF_WE = 1'b0;        // Halt register writes
-                 memWE2 = 1'b0;       // Prevent memory writes
-                 memRDEN1 = 1'b0;     // Halt memory reads
-                 memRDEN2 = 1'b0;     
-                 reset = 1'b0;
+                 int_taken = 1'b1;
                  NS = st_FET;
               end       
              default: NS = st_FET;
-         
-        endcase //- case statement for FSM states 
-
-    end 
-
+             
+        endcase //- case statement for FSM states
+        end
 endmodule            
-
- 
